@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import math
 import torch.nn as nn
+import pandas as pd
 from torch.autograd import Variable
 
 """
@@ -110,42 +111,73 @@ class FeedForward(nn.Module):
     def forward(self, X):
         return self.Layer(X)
 
+def getSenLab(root):
+    file = pd.read_csv(root)
+    df = pd.DataFrame(file)
+    data = []
+    for i in range(len(df)):
+        d = df[i:i + 1]
+        data.append(d)
+    data = np.array(data)
+    sentences = []
+    Labels = []
+    max_seq_len = 0
+    max_seq_num = 0
+    for sub in data:
+        for d in sub:
+            dialogs, labels = d[1], d[2]
+            dialogs = dialogs.split('__eou__')
+            dialogs = ["".join(dialog.split()) for dialog in dialogs]
+            label = []
+            while labels > 0:
+                label.insert(0, labels % 10)
+                labels = labels // 10
+            max_seq_num = len(label) if max_seq_num < len(label) else max_seq_num
+            for d, l in zip(dialogs, label):
+                max_seq_len = len(d) if max_seq_len < len(d) else max_seq_len
+                sentences.append(d)
+                Labels.append(l)
+    return sentences, Labels, max_seq_len, max_seq_num
+
 def getDict(sentences):
-    sentences = " ".join(sentences)
-    s = list(set(sentences.split()))
+    word2num = dict()
+    num2word = dict()
+    s = "".join(sentences)
+    # 字典自动去重 序号有问题，要重新去重
+    s = list(set([ch for ch in s]))
     word2num = {w:i for i, w in enumerate(s)}
     num2word = {i:w for i, w in enumerate(s)}
     return word2num, num2word
 
 if __name__ == '__main__':
-    # 不等长的在Embedding里，还需要继续研究
-    sentences = ["i like milk", "i like meat", "i hate dog", "i hate cat", "i like iphone", "i hate sumsung"]
-    labels = [1, 1, 0, 0, 1, 0]
-
+    root = './train_data.csv'
+    sentences, labels, max_seq_len, max_seq_num = getSenLab(root)
     word2num, num2word = getDict(sentences)
+    assert len(word2num) == len(num2word)
     vocab_size = len(word2num)
+    print(len(sentences), len(labels), vocab_size)
 
     # 超参数
     dim_q = 20
     dim_k = 20
     dim_v = 80
     heads_num = 4
-    input_dim = embedding_dim = 20
+    input_dim = embedding_dim = 80
     pad = 0
     p_drop = 0.1
     hidden_dim = 100
-    output_dim = 2
+    output_dim = 6
     seq_len = 3
     #
-    sen2idx = []
-    for sen in sentences:
-        ss = []
-        for s in sen.split():
-            ss.append(word2num[s])
-        sen2idx.append(ss)
-    x = Variable(torch.LongTensor(sen2idx))
-    model = Encoder(vocab_size)
-    y = model(x)
-    print(y, y.shape)
+    # sen2idx = []
+    # for sen in sentences:
+    #     ss = []
+    #     for s in sen.split():
+    #         ss.append(word2num[s])
+    #     sen2idx.append(ss)
+    # x = Variable(torch.LongTensor(sen2idx))
+    # model = Encoder(vocab_size)
+    # y = model(x)
+    # print(y, y.shape)
 
 
