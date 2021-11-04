@@ -1,4 +1,6 @@
 # 这是汇总的
+import random
+
 import numpy as np
 import torch
 import math
@@ -14,7 +16,6 @@ add & norm              : [batch_size, seq_len, embedding_dim]
 FeedForward             : [batch_size, seq_len, embedding_dim]
 Linear                  : [batch_size, seq_len, output_dim]
 """
-
 class Encoder(nn.Module):
     def __init__(self, vocab_size):
         super(Encoder, self).__init__()
@@ -26,6 +27,7 @@ class Encoder(nn.Module):
         self.fc = nn.Linear(input_dim * seq_len, output_dim)
     def forward(self, X):
         x1 = self.Embedding(X)
+        print(x1.shape)
         x2 = self.PositionalEncoding(X[0])
         # 利用广播机制
         x = x1 + x2
@@ -147,7 +149,24 @@ def getDict(sentences):
     s = list(set([ch for ch in s]))
     word2num = {w:i for i, w in enumerate(s)}
     num2word = {i:w for i, w in enumerate(s)}
+    word2num['_'] = len(word2num)
+    num2word[len(num2word)] = '_'
     return word2num, num2word
+
+def getBatch(batch_size, sentences, labels, word2num):
+    sen = [1] * batch_size
+    max_len = 0
+    for i in range(batch_size):
+        sen[i] = [ch for ch in sentences[i]]
+        max_len = len(sen[i]) if len(sen[i]) > max_len else max_len
+    for i in range(batch_size):
+        while len(sen[i]) < max_len:
+            sen[i].append('_')
+        sen[i] = [word2num[ch] for ch in sen[i]]
+    sen = np.array(sen)
+    sen = Variable(torch.LongTensor(sen))
+    label = labels[:batch_size]
+    return sen, label
 
 if __name__ == '__main__':
     root = './train_data.csv'
@@ -158,6 +177,7 @@ if __name__ == '__main__':
     print(len(sentences), len(labels), vocab_size)
 
     # 超参数
+    batch_size = 6
     dim_q = 20
     dim_k = 20
     dim_v = 80
@@ -167,17 +187,15 @@ if __name__ == '__main__':
     p_drop = 0.1
     hidden_dim = 100
     output_dim = 6
-    seq_len = 3
-    #
-    # sen2idx = []
-    # for sen in sentences:
-    #     ss = []
-    #     for s in sen.split():
-    #         ss.append(word2num[s])
-    #     sen2idx.append(ss)
-    # x = Variable(torch.LongTensor(sen2idx))
-    # model = Encoder(vocab_size)
-    # y = model(x)
-    # print(y, y.shape)
+    seq_len = 4
+
+    sen, label = getBatch(batch_size, sentences, labels, word2num)
+    # sen = np.random.randint(1, 100, size=[4, 10])
+    # sen = Variable(torch.LongTensor(torch.from_numpy(sen)))
+    model = Encoder(vocab_size)
+    print(sen.shape)
+    y = model(sen)
+
+    # print(y.shape)
 
 
