@@ -166,7 +166,7 @@ def getBatch(batch_size, sentences, labels, word2num):
     sen = np.array(sen)
     sen = Variable(torch.LongTensor(sen))
     label = labels[:batch_size]
-    return sen, label
+    return sen, label, max_len
 
 if __name__ == '__main__':
     root = './train_data.csv'
@@ -187,15 +187,14 @@ if __name__ == '__main__':
     p_drop = 0.1
     hidden_dim = 100
     output_dim = 6
-    seq_len = 4
 
-    sen, label = getBatch(batch_size, sentences, labels, word2num)
+    sen, label, seq_len = getBatch(batch_size, sentences, labels, word2num)
     # sen = np.random.randint(1, 100, size=[4, 10])
     # sen = Variable(torch.LongTensor(torch.from_numpy(sen)))
     model = Encoder(vocab_size)
     print(sen.shape)
     y = model(sen)
 
-    # print(y.shape)
+    print(y, y.shape)
 
 
