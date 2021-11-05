@@ -62,33 +62,31 @@ class PositionalEncoding(nn.Module):
                     pe[i][j] = math.cos(j / pow(10000, 2*j / self.input_dim))
         return torch.from_numpy(pe)
 
+def my_collate(batch):
+    data = [item[0] for item in batch]
+    target = [item[1] for item in batch]
+    target = torch.LongTensor(target)
+    return [data, target]
+class MyData(Dataset):
+    def __init__(self, sentences, labels, word2num):
+        self.sentences = sentences
+        self.labels = labels
+        self.word2num = word2num
+    def __len__(self):
+        return len(self.sentences)
+    def __getitem__(self, idx):
+        sen = self.sentences[idx]
+        sen = torch.LongTensor([self.word2num[ch] for ch in sen])
+        lab = self.labels[idx] - 1
+        return sen, lab
 def getTrain(sentences, labels, word2num):
     l = len(sentences)
-    print(l)
     t = []
     for s, l in zip(sentences, labels):
         s = [word2num[ch] for ch in s]
         s = Variable(torch.LongTensor(np.array(s)))
-        # print(s, l)
-        # print(s)
         t.append((s, l-1))
-    # print(t)
     return t[:int(0.7*l)], t[int(0.7*l):]
-
-class Mydata(Dataset):
-    def __init__(self, data, label, word2num):
-        self.data = data
-        self.label = label
-        self.word2num = word2num
-    def __getitem__(self, item):
-        t = []
-        for s, l in zip(self.data, self.label):
-            s = [self.word2num[ch] for ch in s]
-            s = Variable(torch.LongTensor(np.array(s)))
-            t.append((s, l-1))
-        return t
-    def __len__(self):
-        return len(self.data)
 
 def getSenLab(root):
     file = pd.read_csv(root)
@@ -129,8 +127,6 @@ def getDict(sentences):
     word2num['_'] = len(word2num)
     num2word[len(num2word)] = '_'
     return word2num, num2word
-
-
 
 def train_transformer(model, train_data, test_data):
     criteon = nn.CrossEntropyLoss()
@@ -173,6 +169,7 @@ if __name__ == '__main__':
     word2num, num2word = getDict(sentences)
     assert len(word2num) == len(num2word)
     vocab_size = len(word2num)
+
     # 超参数
     batch_size = 1
     dim_q = 20
@@ -189,10 +186,13 @@ if __name__ == '__main__':
     num_layers = 1
     #
 
-    model = Model()
-    model.to(device)
-    dataset = Mydata(sentences, labels, word2num)
-    train_data = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-    test_data = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    dataset = MyData(sentences, labels, word2num)
+    train_data = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
-    train_transformer(model, train_data, test_data)
+    s, l = iter(train_data).next()
+    print(s, l)
+
+    # train_data, test_data = getTrain(sentences, labels, word2num)
+    # model = Model()
+    # model.to(device)
+    # train_transformer(model, train_data, test_data)
