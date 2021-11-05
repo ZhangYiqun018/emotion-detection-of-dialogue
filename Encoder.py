@@ -25,7 +25,7 @@ class Model(nn.Module):
         self.Embedding = Embedding(vocab_size, input_dim, pad)
         self.PositionalEncoding = PositionalEncoding(input_dim)
         self.encoder = Encoder()
-        self.num_layers = 1
+        self.num_layers = num_layers
     def forward(self, X):
         x1 = self.Embedding(X)
         x2 = self.PositionalEncoding(X[0]).to(device)
@@ -36,7 +36,7 @@ class Model(nn.Module):
         # print(x.shape)
         # x = self.fc(x)
         layer = nn.Linear(x.shape[1], self.output_dim)
-        x = layer(x).to(device)
+        x = layer(x)
         # print(x.shape)
         x = nn.Softmax(dim=-1)(x)
 class Encoder(nn.Module):
@@ -49,16 +49,19 @@ class Encoder(nn.Module):
     def forward(self, X):
         # 利用广播机制
         x = X.to(torch.float32)
-        # 多头
+        # 多头+add norm
         x_multi = self.MultiHeadAttention(x, y=x)
-        x = self.dropout(x + x_multi)
-        ln = nn.LayerNorm(x.shape[1:])
-        x = ln(x).to(device)
-        x_feedforward = self.FeedForward(x)
-        x = self.dropout(x + x_feedforward)
-        ln = nn.LayerNorm(x.shape[1:])
-        x = ln(x).to(device)
-        return x
+        x_drop1 = self.dropout(x + x_multi)
+        print(x_drop1.shape[1:])
+        ln = nn.LayerNorm(x_drop1.shape[1:])
+        x_ln1 = ln(x_drop1)
+        print(x_ln1.device)
+        # feedforward + add norm
+        x_feedforward = self.FeedForward(x_ln1)
+        x_drop2 = self.dropout(x_ln1 + x_feedforward)
+        ln = nn.LayerNorm(x_drop2.shape[1:])
+        x_ln2 = ln(x_drop2.to(device))
+        return x_ln2
 class Embedding(nn.Module):
     def __init__(self, vocab_size, input_dim, pad):
         super(Embedding, self).__init__()
@@ -172,7 +175,7 @@ def getTrain(sentences, labels, word2num):
         s = Variable(torch.LongTensor(np.array(s)))
         # print(s, l)
         # print(s)
-        t.append((s, l))
+        t.append((s, l-1))
     # print(t)
     return t[:int(0.7*l)], t[int(0.7*l):]
 
@@ -244,13 +247,13 @@ if __name__ == '__main__':
     pad = 0
     p_drop = 0.1
     hidden_dim = 100
-    output_dim = 7
+    output_dim = 6
     learn_rate = 1e-3
     epochs = 1000
     num_layers = 1
     #
 
-    model = Model()
+    model = Model(num_layers)
     model.to(device)
     train_data = DataLoader(train_data, batch_size=batch_size, shuffle=False)
     test_data = DataLoader(test_data, batch_size=batch_size, shuffle=False)
