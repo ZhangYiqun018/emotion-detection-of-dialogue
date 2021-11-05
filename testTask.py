@@ -8,7 +8,7 @@ import pandas as pd
 from torch.autograd import Variable
 import torch.optim as optim
 from torch.utils.data import DataLoader
-
+from torch.utils.data import Dataset
 
 """
 embedding               : [batch_size, seq_len, embedding_dim]
@@ -26,16 +26,19 @@ class Model(nn.Module):
         self.PositionalEncoding = PositionalEncoding(input_dim)
         encoder_layer = nn.TransformerEncoderLayer(input_dim, heads_num)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.output_dim = output_dim
     def forward(self, X):
         x1 = self.Embedding(X)
         x2 = self.PositionalEncoding(X[0]).to(device)
         x = x1 + x2
-        x = self.transformer_encoder(x)
-        x = x.reshape(-1, x.shape[1] * x.shape[2])
-        layer = nn.Linear(x.shape[1], self.output_dim)
-        x = layer(x)
-        x = nn.Softmax(dim=-1)(x)
-
+        x = x.to(torch.float32)
+        x_trans = self.transformer_encoder(x)
+        x_trans = x_trans.reshape(-1, x.shape[1] * x.shape[2]).to(device)
+        # print(x_trans.device)
+        layer = nn.Linear(x_trans.shape[1], self.output_dim)
+        x_layer = layer(x_trans)
+        output = nn.Softmax(dim=-1)(x_layer)
+        return output
 
 class Embedding(nn.Module):
     def __init__(self, vocab_size, input_dim, pad):
@@ -59,6 +62,33 @@ class PositionalEncoding(nn.Module):
                     pe[i][j] = math.cos(j / pow(10000, 2*j / self.input_dim))
         return torch.from_numpy(pe)
 
+def getTrain(sentences, labels, word2num):
+    l = len(sentences)
+    print(l)
+    t = []
+    for s, l in zip(sentences, labels):
+        s = [word2num[ch] for ch in s]
+        s = Variable(torch.LongTensor(np.array(s)))
+        # print(s, l)
+        # print(s)
+        t.append((s, l-1))
+    # print(t)
+    return t[:int(0.7*l)], t[int(0.7*l):]
+
+class Mydata(Dataset):
+    def __init__(self, data, label, word2num):
+        self.data = data
+        self.label = label
+        self.word2num = word2num
+    def __getitem__(self, item):
+        t = []
+        for s, l in zip(self.data, self.label):
+            s = [self.word2num[ch] for ch in s]
+            s = Variable(torch.LongTensor(np.array(s)))
+            t.append((s, l-1))
+        return t
+    def __len__(self):
+        return len(self.data)
 
 def getSenLab(root):
     file = pd.read_csv(root)
@@ -100,33 +130,7 @@ def getDict(sentences):
     num2word[len(num2word)] = '_'
     return word2num, num2word
 
-def getTrain(sentences, labels, word2num):
-    l = len(sentences)
-    t = []
-    for s, l in zip(sentences, labels):
-        s = [word2num[ch] for ch in s]
-        s = Variable(torch.LongTensor(np.array(s)))
-        # print(s, l)
-        # print(s)
-        t.append((s, l-1))
-    # print(t)
-    return t[:int(0.7*l)], t[int(0.7*l):]
 
-
-def getBatch(batch_size, sentences, labels, word2num):
-    sen = [1] * batch_size
-    max_len = 0
-    for i in range(batch_size):
-        sen[i] = [ch for ch in sentences[i]]
-        max_len = len(sen[i]) if len(sen[i]) > max_len else max_len
-    for i in range(batch_size):
-        while len(sen[i]) < max_len:
-            sen[i].append('_')
-        sen[i] = [word2num[ch] for ch in sen[i]]
-    sen = np.array(sen)
-    sen = Variable(torch.LongTensor(sen))
-    label = labels[:batch_size]
-    return sen, label, max_len
 
 def train_transformer(model, train_data, test_data):
     criteon = nn.CrossEntropyLoss()
@@ -136,40 +140,39 @@ def train_transformer(model, train_data, test_data):
     # print(batch_number)
     for epoch in range(epochs):
         for batch_idx, x, label in enumerate(train_data):
+            print(batch_idx, x, label)
             x, label = x.to(device), label.to(device)
             output = model(x)
+            print(output.shape)
             loss = criteon(output, label)
-            if (batch_idx+1) % 50 == 0:
-                print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
+            # if (batch_idx+1) % 50 == 0:
+            print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
 
-        model.eval()
-        with torch.no_grad():
-            total_correct = 0
-            total_num = 0
-            for _, (x_t, label_t) in enumerate(test_data):
-                x_t, label_t = x_t.to(device), label_t.to(device)
-                valid_output = model(x_t)
-                valid_loss = criteon(valid_output, label_t)
-                pred = valid_output.argmax(dim=1)
-                total_correct += torch.eq(pred, label_t).float().sum().item()
-                total_num += x_t.size(0)
-            acc = total_correct / total_num
-            print(epoch, acc)
+        # model.eval()
+        # with torch.no_grad():
+        #     total_correct = 0
+        #     total_num = 0
+        #     for _, (x_t, label_t) in enumerate(test_data):
+        #         x_t, label_t = x_t.to(device), label_t.to(device)
+        #         valid_output = model(x_t)
+        #         valid_loss = criteon(valid_output, label_t)
+        #         pred = valid_output.argmax(dim=1)
+        #         total_correct += torch.eq(pred, label_t).float().sum().item()
+        #         total_num += x_t.size(0)
+        #     acc = total_correct / total_num
+        #     print(epoch, acc)
 
 if __name__ == '__main__':
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     # device = "cpu"
     root = './train_data.csv'
     sentences, labels, max_seq_len, max_seq_num = getSenLab(root)
     word2num, num2word = getDict(sentences)
     assert len(word2num) == len(num2word)
     vocab_size = len(word2num)
-    train_data, test_data = getTrain(sentences, labels, word2num)
-    # print(len(sentences), vocab_size)
-
     # 超参数
     batch_size = 1
     dim_q = 20
@@ -188,11 +191,8 @@ if __name__ == '__main__':
 
     model = Model()
     model.to(device)
-    train_data = DataLoader(train_data, batch_size=batch_size, shuffle=False)
-    test_data = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+    dataset = Mydata(sentences, labels, word2num)
+    train_data = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    test_data = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
     train_transformer(model, train_data, test_data)
-
-
-
-
