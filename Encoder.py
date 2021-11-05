@@ -1,12 +1,14 @@
 # 这是汇总的
 import random
-
 import numpy as np
 import torch
 import math
 import torch.nn as nn
 import pandas as pd
 from torch.autograd import Variable
+import torch.optim as optim
+from torch.utils.data import DataLoader
+
 
 """
 embedding               : [batch_size, seq_len, embedding_dim]
@@ -16,38 +18,47 @@ add & norm              : [batch_size, seq_len, embedding_dim]
 FeedForward             : [batch_size, seq_len, embedding_dim]
 Linear                  : [batch_size, seq_len, output_dim]
 """
-class Encoder(nn.Module):
-    def __init__(self, vocab_size):
-        super(Encoder, self).__init__()
+
+class Model(nn.Module):
+    def __init__(self, num_layers):
+        super(Model, self).__init__()
         self.Embedding = Embedding(vocab_size, input_dim, pad)
         self.PositionalEncoding = PositionalEncoding(input_dim)
+        self.encoder = Encoder()
+        self.num_layers = 1
+    def forward(self, X):
+        x1 = self.Embedding(X)
+        x2 = self.PositionalEncoding(X[0]).to(device)
+        x = x1 + x2
+        for i in range(self.num_layers):
+            x = self.encoder(x)
+        x = x.reshape(-1, x.shape[1] * x.shape[2])
+        # print(x.shape)
+        # x = self.fc(x)
+        layer = nn.Linear(x.shape[1], self.output_dim)
+        x = layer(x).to(device)
+        # print(x.shape)
+        x = nn.Softmax(dim=-1)(x)
+class Encoder(nn.Module):
+    def __init__(self):
+        super(Encoder, self).__init__()
         self.MultiHeadAttention = MultiHeadAttention(input_dim, dim_q, dim_k, dim_v, heads_num, required_mask=False)
         self.dropout = nn.Dropout(p_drop)
         self.FeedForward = FeedForward(input_dim, hidden_dim)
-        self.fc = nn.Linear(input_dim * seq_len, output_dim)
+        self.output_dim = output_dim
     def forward(self, X):
-        x1 = self.Embedding(X)
-        print(x1.shape)
-        x2 = self.PositionalEncoding(X[0])
         # 利用广播机制
-        x = x1 + x2
-        x = x.to(torch.float32)
+        x = X.to(torch.float32)
         # 多头
         x_multi = self.MultiHeadAttention(x, y=x)
         x = self.dropout(x + x_multi)
         ln = nn.LayerNorm(x.shape[1:])
-        x = ln(x)
+        x = ln(x).to(device)
         x_feedforward = self.FeedForward(x)
         x = self.dropout(x + x_feedforward)
         ln = nn.LayerNorm(x.shape[1:])
-        x = ln(x)
-        x = x.reshape(-1, x.shape[1] * x.shape[2])
-        print(x.shape)
-        x = self.fc(x)
-        x = nn.Softmax(dim=-1)(x)
+        x = ln(x).to(device)
         return x
-
-
 class Embedding(nn.Module):
     def __init__(self, vocab_size, input_dim, pad):
         super(Embedding, self).__init__()
@@ -153,6 +164,19 @@ def getDict(sentences):
     num2word[len(num2word)] = '_'
     return word2num, num2word
 
+def getTrain(sentences, labels, word2num):
+    l = len(sentences)
+    t = []
+    for s, l in zip(sentences, labels):
+        s = [word2num[ch] for ch in s]
+        s = Variable(torch.LongTensor(np.array(s)))
+        # print(s, l)
+        # print(s)
+        t.append((s, l))
+    # print(t)
+    return t[:int(0.7*l)], t[int(0.7*l):]
+
+
 def getBatch(batch_size, sentences, labels, word2num):
     sen = [1] * batch_size
     max_len = 0
@@ -168,16 +192,50 @@ def getBatch(batch_size, sentences, labels, word2num):
     label = labels[:batch_size]
     return sen, label, max_len
 
+def train_transformer(model, train_data, test_data):
+    criteon = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr = learn_rate)
+
+    batch_number = len(train_data)
+    # print(batch_number)
+    for epoch in range(epochs):
+        for batch_idx, x, label in enumerate(train_data):
+            x, label = x.to(device), label.to(device)
+            output = model(x)
+            loss = criteon(output, label)
+            if (batch_idx+1) % 50 == 0:
+                print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+        model.eval()
+        with torch.no_grad():
+            total_correct = 0
+            total_num = 0
+            for _, (x_t, label_t) in enumerate(test_data):
+                x_t, label_t = x_t.to(device), label_t.to(device)
+                valid_output = model(x_t)
+                valid_loss = criteon(valid_output, label_t)
+                pred = valid_output.argmax(dim=1)
+                total_correct += torch.eq(pred, label_t).float().sum().item()
+                total_num += x_t.size(0)
+            acc = total_correct / total_num
+            print(epoch, acc)
+
 if __name__ == '__main__':
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # device = "cpu"
     root = './train_data.csv'
     sentences, labels, max_seq_len, max_seq_num = getSenLab(root)
     word2num, num2word = getDict(sentences)
     assert len(word2num) == len(num2word)
     vocab_size = len(word2num)
-    print(len(sentences), len(labels), vocab_size)
+    train_data, test_data = getTrain(sentences, labels, word2num)
+    # print(len(sentences), vocab_size)
 
     # 超参数
-    batch_size = 6
+    batch_size = 1
     dim_q = 20
     dim_k = 20
     dim_v = 80
@@ -186,15 +244,19 @@ if __name__ == '__main__':
     pad = 0
     p_drop = 0.1
     hidden_dim = 100
-    output_dim = 6
+    output_dim = 7
+    learn_rate = 1e-3
+    epochs = 1000
+    num_layers = 1
+    #
 
-    sen, label, seq_len = getBatch(batch_size, sentences, labels, word2num)
-    # sen = np.random.randint(1, 100, size=[4, 10])
-    # sen = Variable(torch.LongTensor(torch.from_numpy(sen)))
-    model = Encoder(vocab_size)
-    print(sen.shape)
-    y = model(sen)
+    model = Model()
+    model.to(device)
+    train_data = DataLoader(train_data, batch_size=batch_size, shuffle=False)
+    test_data = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-    print(y, y.shape)
+    train_transformer(model, train_data, test_data)
+
+
 
 
