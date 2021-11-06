@@ -1,9 +1,8 @@
 import torch
 import numpy as np
-from torch.utils.data import Dataset
-from torch.autograd import Variable
 import pandas as pd
-
+from torch.autograd import Variable
+from torch.utils.data import Dataset
 
 def my_collate(batch):
     data = [item[0] for item in batch]
