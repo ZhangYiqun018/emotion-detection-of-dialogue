@@ -27,20 +27,16 @@ class Model(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(input_dim, heads_num)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.output_dim = output_dim
-
+        self.fc = nn.Linear(input_dim, output_dim)
     def forward(self, X):
         x1 = self.Embedding(X)
         x2 = self.PositionalEncoding(x1[0]).to(device)
         x = x1 + x2
         x = x.to(torch.float32)
         x_trans = self.transformer_encoder(x)
-        x_trans = x_trans.reshape(-1, x.shape[1] * x.shape[2])
-        # x_t = x_trans.to('cpu')
-        layer = nn.Linear(x_trans.shape[1], self.output_dim)
-        layer.to(device)
-        x_layer = layer(x_trans)
-        # print(x_trans.device)
-        output = nn.Softmax(dim=-1)(x_layer)
+        x_trans, _ = torch.max(x_trans, dim=1)
+        fc = self.fc(x_trans)
+        output = nn.Softmax(dim=-1)(fc)
         return output
 
 class Embedding(nn.Module):
@@ -175,19 +171,19 @@ if __name__ == '__main__':
     vocab_size = len(word2num)
 
     # 超参数
-    batch_size = 1
+    batch_size = 32
     # dim_q = 64
     # dim_k = 64
     # dim_v = 128
     heads_num = 8
-    input_dim = embedding_dim = 80
+    input_dim = embedding_dim = 256
     pad = 0
     p_drop = 0.1
     hidden_dim = 500
     output_dim = 6
     learn_rate = 1e-3
     epochs = 1000
-    num_layers = 1
+    num_layers = 2
     #
     dataset = MyData(sentences, labels, word2num)
 

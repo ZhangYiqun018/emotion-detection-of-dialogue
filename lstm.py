@@ -30,7 +30,9 @@ class Model(nn.Module):
         embedding = self.Embedding(X)
         embedding = embedding.to(torch.float32)
         lstm, (hidden, cell) = self.rnn(embedding.transpose(0, 1))
+        # print(hidden.shape)
         hidden = torch.cat([hidden[-2], hidden[-1]], dim=1)
+        # print(hidden.shape)
         hidden = self.dropout(hidden)
         out = self.layer(hidden)
         return out
@@ -38,7 +40,7 @@ class Model(nn.Module):
 class Embedding(nn.Module):
     def __init__(self, vocab_size, input_dim, pad):
         super(Embedding, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, input_dim, padding_idx=0)
+        self.embedding = nn.Embedding(vocab_size, input_dim, padding_idx=pad)
     def forward(self, X):
         max_len = 0
         for i in range(len(X)):
@@ -159,9 +161,9 @@ if __name__ == '__main__':
     pad = 0
     hidden_dim = 100
     output_dim = 6
-    learn_rate = 1e-4
+    learn_rate = 1e-3 * 0.65
     epochs = 20
-    num_layers = 3
+    num_layers = 2
     #
     dataset = MyData(sentences, labels, word2num)
 
@@ -169,8 +171,8 @@ if __name__ == '__main__':
     valid_size = len(dataset) - train_size
     train_data, valid_data = torch.utils.data.random_split(dataset, [train_size, valid_size])
 
-    train_data = DataLoader(train_data, batch_size=batch_size, shuffle=False, collate_fn=my_collate)
-    valid_data = DataLoader(valid_data, batch_size=batch_size, shuffle=False, collate_fn=my_collate)
+    train_data = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
+    valid_data = DataLoader(valid_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
 
     # x, label = iter(valid_data).next()
     # print(x, label)
