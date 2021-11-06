@@ -30,7 +30,7 @@ class Model(nn.Module):
     def forward(self, X):
         x1 = self.Embedding(X)
         # print(x1.shape)
-        x2 = self.PositionalEncoding(X[0]).to(device)
+        x2 = self.PositionalEncoding(x1[0]).to(device)
         x = x1 + x2
         x = x.to(torch.float32)
         x_trans = self.transformer_encoder(x)
@@ -46,8 +46,15 @@ class Model(nn.Module):
 class Embedding(nn.Module):
     def __init__(self, vocab_size, input_dim, pad):
         super(Embedding, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, input_dim, padding_idx=pad)
+        self.embedding = nn.Embedding(vocab_size, input_dim, padding_idx=0)
     def forward(self, X):
+        max_len = 0
+        for i in range(len(X)):
+            max_len = len(X[i]) if len(X[i]) > max_len else max_len
+        for i in range(len(X)):
+            if len(X[i]) < max_len:
+                X[i].extend([0] * (max_len - len(X[i])))
+        X = torch.LongTensor(X).to(device)
         return self.embedding(X)
 
 class PositionalEncoding(nn.Module):
@@ -139,17 +146,9 @@ def train_transformer(model, train_data, valid_data):
     batch_number = len(train_data)
     for epoch in range(epochs):
         for batch_idx, (X, label) in enumerate(train_data):
-            max_len = 0
-            for i in range(len(X)):
-                max_len = len(X[i]) if len(X[i]) > max_len else max_len
-            for i in range(len(X)):
-                if len(X[i]) < max_len:
-                    X[i].extend([word2num['_']] * (max_len - len(X[i])))
-            x = torch.LongTensor(X)
-            label = torch.LongTensor(label)
+            label = torch.LongTensor(label).to(device)
             # print(x.shape, label.shape)
-            x, label = x.to(device), label.to(device)
-            output = model(x)
+            output = model(X)
             # print(output.shape)
             loss = criteon(output, label)
             if (batch_idx+1) % 100 == 0:
@@ -163,20 +162,14 @@ def train_transformer(model, train_data, valid_data):
             total_correct = 0
             total_num = 0
             for _, (X, label_valid) in enumerate(valid_data):
-                max_len = 0
-                for i in range(len(X)):
-                    max_len = len(X[i]) if len(X[i]) > max_len else max_len
-                for i in range(len(X)):
-                    if len(X[i]) < max_len:
-                        X[i].extend([word2num['_']] * (max_len - len(X[i])))
-                x_valid = torch.LongTensor(X).to(device)
+                x_valid = X
                 label_valid = torch.LongTensor(label_valid).to(device)
                 valid_output = model(x_valid)
-                print(valid_output)
+                # print(valid_output)
                 valid_loss = criteon(valid_output, label_valid)
                 pred = valid_output.argmax(dim=1)
                 total_correct += torch.eq(pred, label_valid).float().sum().item()
-                total_num += x_valid.size(0)
+                total_num += len(x_valid)
             acc = total_correct / total_num
             print(f'\nValidating at epoch', '%04d'% (epoch+1) , 'acc:', '{:.6f},'.format(acc))
 
@@ -195,13 +188,13 @@ if __name__ == '__main__':
     # dim_k = 64
     # dim_v = 128
     heads_num = 8
-    input_dim = embedding_dim = 256
+    input_dim = embedding_dim = 16
     pad = 0
     p_drop = 0.1
     hidden_dim = 500
     output_dim = 6
     learn_rate = 1e-3
-    epochs = 10
+    epochs = 1000
     num_layers = 4
     #
     dataset = MyData(sentences, labels, word2num)
@@ -212,14 +205,8 @@ if __name__ == '__main__':
 
     train_data = DataLoader(train_data, batch_size=batch_size, shuffle=False, collate_fn=my_collate)
     valid_data = DataLoader(valid_data, batch_size=batch_size, shuffle=False, collate_fn=my_collate)
-    # for batch_idx, (x, label) in enumerate(train_data):
-    #     print(batch_idx, x, label)
-    #     break
-    #
-    # x, l = iter(train_data).next()
-    # print(x, l)
-    # x, l = iter(valid_data).next()
-    # print(x, l)
     model = Model()
     model.to(device)
-    train_transformer(model, train_data, valid_data)
+    # train_transformer(model, train_data, valid_data)
+
+    model = Model(vocab_size)
