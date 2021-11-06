@@ -35,9 +35,11 @@ class Model(nn.Module):
         x = x.to(torch.float32)
         x_trans = self.transformer_encoder(x)
         x_trans = x_trans.reshape(-1, x.shape[1] * x.shape[2])
+        # x_t = x_trans.to('cpu')
         layer = nn.Linear(x_trans.shape[1], self.output_dim)
-        x_layer = layer(x_trans).to(device)
-        # print(x_layer.device)
+        layer.to(device)
+        x_layer = layer(x_trans)
+        # print(x_trans.device)
         output = nn.Softmax(dim=-1)(x_layer)
         return output
 
@@ -124,10 +126,10 @@ def getDict(sentences):
     s = "".join(sentences)
     # 字典自动去重 序号有问题，要重新去重
     s = list(set([ch for ch in s]))
-    word2num = {w:i for i, w in enumerate(s)}
-    num2word = {i:w for i, w in enumerate(s)}
-    word2num['_'] = len(word2num)
-    num2word[len(num2word)] = '_'
+    word2num = {w:i+1 for i, w in enumerate(s)}
+    num2word = {i+1:w for i, w in enumerate(s)}
+    word2num['_'] = 0
+    num2word[0] = '_'
     return word2num, num2word
 
 def train_transformer(model, train_data, valid_data):
@@ -150,7 +152,7 @@ def train_transformer(model, train_data, valid_data):
             output = model(x)
             # print(output.shape)
             loss = criteon(output, label)
-            if (batch_idx+1) % 50 == 0:
+            if (batch_idx+1) % 100 == 0:
                 print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
             loss.backward()
             optimizer.step()
@@ -167,20 +169,20 @@ def train_transformer(model, train_data, valid_data):
                 for i in range(len(X)):
                     if len(X[i]) < max_len:
                         X[i].extend([word2num['_']] * (max_len - len(X[i])))
-                x_valid = torch.LongTensor(X)
-                label_valid = torch.LongTensor(label_valid)
-
+                x_valid = torch.LongTensor(X).to(device)
+                label_valid = torch.LongTensor(label_valid).to(device)
                 valid_output = model(x_valid)
+                print(valid_output)
                 valid_loss = criteon(valid_output, label_valid)
                 pred = valid_output.argmax(dim=1)
                 total_correct += torch.eq(pred, label_valid).float().sum().item()
                 total_num += x_valid.size(0)
             acc = total_correct / total_num
-            print(epoch, acc)
+            print(f'\nValidating at epoch', '%04d'% (epoch+1) , 'acc:', '{:.6f},'.format(acc))
 
 if __name__ == '__main__':
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    device = "cpu"
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    # device = "cpu"
     root = './train_data.csv'
     sentences, labels, max_seq_len, max_seq_num = getSenLab(root)
     word2num, num2word = getDict(sentences)
@@ -188,19 +190,19 @@ if __name__ == '__main__':
     vocab_size = len(word2num)
 
     # 超参数
-    batch_size = 5
-    dim_q = 20
-    dim_k = 20
-    dim_v = 80
-    heads_num = 4
-    input_dim = embedding_dim = 80
+    batch_size = 32
+    # dim_q = 64
+    # dim_k = 64
+    # dim_v = 128
+    heads_num = 8
+    input_dim = embedding_dim = 256
     pad = 0
     p_drop = 0.1
-    hidden_dim = 100
+    hidden_dim = 500
     output_dim = 6
     learn_rate = 1e-3
-    epochs = 1000
-    num_layers = 1
+    epochs = 10
+    num_layers = 4
     #
     dataset = MyData(sentences, labels, word2num)
 
@@ -218,7 +220,6 @@ if __name__ == '__main__':
     # print(x, l)
     # x, l = iter(valid_data).next()
     # print(x, l)
-
     model = Model()
     model.to(device)
     train_transformer(model, train_data, valid_data)

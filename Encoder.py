@@ -206,7 +206,7 @@ def train_transformer(model, train_data, test_data):
             x, label = x.to(device), label.to(device)
             output = model(x)
             loss = criteon(output, label)
-            if (batch_idx+1) % 50 == 0:
+            if (batch_idx+1) % 100 == 0:
                 print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
             loss.backward()
             optimizer.step()
