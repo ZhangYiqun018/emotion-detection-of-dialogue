@@ -29,14 +29,15 @@ class Model(nn.Module):
         self.output_dim = output_dim
     def forward(self, X):
         x1 = self.Embedding(X)
+        # print(x1.shape)
         x2 = self.PositionalEncoding(X[0]).to(device)
         x = x1 + x2
         x = x.to(torch.float32)
         x_trans = self.transformer_encoder(x)
-        x_trans = x_trans.reshape(-1, x.shape[1] * x.shape[2]).to(device)
-        # print(x_trans.device)
+        x_trans = x_trans.reshape(-1, x.shape[1] * x.shape[2])
         layer = nn.Linear(x_trans.shape[1], self.output_dim)
-        x_layer = layer(x_trans)
+        x_layer = layer(x_trans).to(device)
+        # print(x_layer.device)
         output = nn.Softmax(dim=-1)(x_layer)
         return output
 
@@ -76,9 +77,10 @@ class MyData(Dataset):
         return len(self.sentences)
     def __getitem__(self, idx):
         sen = self.sentences[idx]
-        sen = torch.LongTensor([self.word2num[ch] for ch in sen])
+        sen = [self.word2num[ch] for ch in sen]
         lab = self.labels[idx] - 1
         return sen, lab
+
 def getTrain(sentences, labels, word2num):
     l = len(sentences)
     t = []
@@ -128,42 +130,57 @@ def getDict(sentences):
     num2word[len(num2word)] = '_'
     return word2num, num2word
 
-def train_transformer(model, train_data, test_data):
+def train_transformer(model, train_data, valid_data):
     criteon = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr = learn_rate)
 
     batch_number = len(train_data)
-    # print(batch_number)
     for epoch in range(epochs):
-        for batch_idx, x, label in enumerate(train_data):
-            print(batch_idx, x, label)
+        for batch_idx, (X, label) in enumerate(train_data):
+            max_len = 0
+            for i in range(len(X)):
+                max_len = len(X[i]) if len(X[i]) > max_len else max_len
+            for i in range(len(X)):
+                if len(X[i]) < max_len:
+                    X[i].extend([word2num['_']] * (max_len - len(X[i])))
+            x = torch.LongTensor(X)
+            label = torch.LongTensor(label)
+            # print(x.shape, label.shape)
             x, label = x.to(device), label.to(device)
             output = model(x)
-            print(output.shape)
+            # print(output.shape)
             loss = criteon(output, label)
-            # if (batch_idx+1) % 50 == 0:
-            print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
+            if (batch_idx+1) % 50 == 0:
+                print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
 
-        # model.eval()
-        # with torch.no_grad():
-        #     total_correct = 0
-        #     total_num = 0
-        #     for _, (x_t, label_t) in enumerate(test_data):
-        #         x_t, label_t = x_t.to(device), label_t.to(device)
-        #         valid_output = model(x_t)
-        #         valid_loss = criteon(valid_output, label_t)
-        #         pred = valid_output.argmax(dim=1)
-        #         total_correct += torch.eq(pred, label_t).float().sum().item()
-        #         total_num += x_t.size(0)
-        #     acc = total_correct / total_num
-        #     print(epoch, acc)
+        model.eval()
+        with torch.no_grad():
+            total_correct = 0
+            total_num = 0
+            for _, (X, label_valid) in enumerate(valid_data):
+                max_len = 0
+                for i in range(len(X)):
+                    max_len = len(X[i]) if len(X[i]) > max_len else max_len
+                for i in range(len(X)):
+                    if len(X[i]) < max_len:
+                        X[i].extend([word2num['_']] * (max_len - len(X[i])))
+                x_valid = torch.LongTensor(X)
+                label_valid = torch.LongTensor(label_valid)
+
+                valid_output = model(x_valid)
+                valid_loss = criteon(valid_output, label_valid)
+                pred = valid_output.argmax(dim=1)
+                total_correct += torch.eq(pred, label_valid).float().sum().item()
+                total_num += x_valid.size(0)
+            acc = total_correct / total_num
+            print(epoch, acc)
 
 if __name__ == '__main__':
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    # device = "cpu"
+    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = "cpu"
     root = './train_data.csv'
     sentences, labels, max_seq_len, max_seq_num = getSenLab(root)
     word2num, num2word = getDict(sentences)
@@ -171,7 +188,7 @@ if __name__ == '__main__':
     vocab_size = len(word2num)
 
     # 超参数
-    batch_size = 1
+    batch_size = 5
     dim_q = 20
     dim_k = 20
     dim_v = 80
@@ -185,14 +202,23 @@ if __name__ == '__main__':
     epochs = 1000
     num_layers = 1
     #
-
     dataset = MyData(sentences, labels, word2num)
-    train_data = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
-    s, l = iter(train_data).next()
-    print(s, l)
+    train_size = int(len(dataset) * 0.7)
+    valid_size = len(dataset) - train_size
+    train_data, valid_data = torch.utils.data.random_split(dataset, [train_size, valid_size])
 
-    # train_data, test_data = getTrain(sentences, labels, word2num)
-    # model = Model()
-    # model.to(device)
-    # train_transformer(model, train_data, test_data)
+    train_data = DataLoader(train_data, batch_size=batch_size, shuffle=False, collate_fn=my_collate)
+    valid_data = DataLoader(valid_data, batch_size=batch_size, shuffle=False, collate_fn=my_collate)
+    # for batch_idx, (x, label) in enumerate(train_data):
+    #     print(batch_idx, x, label)
+    #     break
+    #
+    # x, l = iter(train_data).next()
+    # print(x, l)
+    # x, l = iter(valid_data).next()
+    # print(x, l)
+
+    model = Model()
+    model.to(device)
+    train_transformer(model, train_data, valid_data)
