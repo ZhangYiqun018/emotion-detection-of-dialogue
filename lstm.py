@@ -1,30 +1,20 @@
-# 这是汇总的
-import random
-import numpy as np
+from singleData import MyData
+from singleData import getSenLab
+from singleData import getDict
+from singleData import my_collate
+
 import torch
-import math
 import torch.nn as nn
-import pandas as pd
 from torch.autograd import Variable
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
-
-"""
-embedding               : [batch_size, seq_len, embedding_dim]
-positionalEncoding      : [batch_size, seq_len, embedding_dim]
-multiHeadAttention      : [batch_size, seq_len, embedding_dim]
-add & norm              : [batch_size, seq_len, embedding_dim]
-FeedForward             : [batch_size, seq_len, embedding_dim]
-Linear                  : [batch_size, seq_len, output_dim]
-"""
 
 class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
         self.Embedding = Embedding(vocab_size, input_dim, pad)
-        self.rnn = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, bidirectional=True, dropout=0.5)
-        self.dropout = nn.Dropout(0.5)
+        self.rnn = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, bidirectional=True, dropout=p_dropout)
+        self.dropout = nn.Dropout(p_dropout)
         self.layer = nn.Linear(2*hidden_dim, output_dim)
     def forward(self, X):
         embedding = self.Embedding(X)
@@ -50,65 +40,6 @@ class Embedding(nn.Module):
                 X[i].extend([0] * (max_len - len(X[i])))
         X = Variable(torch.LongTensor(X).to(device))
         return self.embedding(X)
-
-
-def my_collate(batch):
-    data = [item[0] for item in batch]
-    target = [item[1] for item in batch]
-    target = torch.LongTensor(target)
-    return [data, target]
-class MyData(Dataset):
-    def __init__(self, sentences, labels, word2num):
-        self.sentences = sentences
-        self.labels = labels
-        self.word2num = word2num
-    def __len__(self):
-        return len(self.sentences)
-    def __getitem__(self, idx):
-        sen = self.sentences[idx]
-        sen = [self.word2num[ch] for ch in sen]
-        lab = self.labels[idx] - 1
-        return sen, lab
-
-def getSenLab(root):
-    file = pd.read_csv(root)
-    df = pd.DataFrame(file)
-    data = []
-    for i in range(len(df)):
-        d = df[i:i + 1]
-        data.append(d)
-    data = np.array(data)
-    sentences = []
-    Labels = []
-    max_seq_len = 0
-    max_seq_num = 0
-    for sub in data:
-        for d in sub:
-            dialogs, labels = d[1], d[2]
-            dialogs = dialogs.split('__eou__')
-            dialogs = ["".join(dialog.split()) for dialog in dialogs]
-            label = []
-            while labels > 0:
-                label.insert(0, labels % 10)
-                labels = labels // 10
-            max_seq_num = len(label) if max_seq_num < len(label) else max_seq_num
-            for d, l in zip(dialogs, label):
-                max_seq_len = len(d) if max_seq_len < len(d) else max_seq_len
-                sentences.append(d)
-                Labels.append(l)
-    return sentences, Labels, max_seq_len, max_seq_num
-
-def getDict(sentences):
-    word2num = dict()
-    num2word = dict()
-    s = "".join(sentences)
-    # 字典自动去重 序号有问题，要重新去重
-    s = list(set([ch for ch in s]))
-    word2num = {w:i+1 for i, w in enumerate(s)}
-    num2word = {i+1:w for i, w in enumerate(s)}
-    word2num['_'] = 0
-    num2word[0] = '_'
-    return word2num, num2word
 
 def train_transformer(model, train_data, valid_data):
     criteon = nn.CrossEntropyLoss().to(device)
@@ -157,13 +88,14 @@ if __name__ == '__main__':
 
     # 超参数
     batch_size = 32
-    input_dim = embedding_dim = 256
+    input_dim = embedding_dim = 512
     pad = 0
-    hidden_dim = 100
+    hidden_dim = 150
     output_dim = 6
-    learn_rate = 1e-3 * 0.65
+    learn_rate = 1e-3 * 0.6
     epochs = 20
-    num_layers = 2
+    num_layers = 3
+    p_dropout = 0.1
     #
     dataset = MyData(sentences, labels, word2num)
 
@@ -180,8 +112,3 @@ if __name__ == '__main__':
     model = Model()
     model.to(device)
     train_transformer(model, train_data, valid_data)
-    # #
-    # x = Variable(torch.LongTensor(np.random.randint(1, 1000, [3, 30, 40]))).to(device)
-    # # print(x.shape)
-    # # y = model(x)
-    # # print(y)
