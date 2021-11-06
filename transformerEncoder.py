@@ -27,9 +27,9 @@ class Model(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(input_dim, heads_num)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.output_dim = output_dim
+
     def forward(self, X):
         x1 = self.Embedding(X)
-        # print(x1.shape)
         x2 = self.PositionalEncoding(x1[0]).to(device)
         x = x1 + x2
         x = x.to(torch.float32)
@@ -54,7 +54,7 @@ class Embedding(nn.Module):
         for i in range(len(X)):
             if len(X[i]) < max_len:
                 X[i].extend([0] * (max_len - len(X[i])))
-        X = torch.LongTensor(X).to(device)
+        X = Variable(torch.LongTensor(X).to(device))
         return self.embedding(X)
 
 class PositionalEncoding(nn.Module):
@@ -89,15 +89,6 @@ class MyData(Dataset):
         sen = [self.word2num[ch] for ch in sen]
         lab = self.labels[idx] - 1
         return sen, lab
-
-def getTrain(sentences, labels, word2num):
-    l = len(sentences)
-    t = []
-    for s, l in zip(sentences, labels):
-        s = [word2num[ch] for ch in s]
-        s = Variable(torch.LongTensor(np.array(s)))
-        t.append((s, l-1))
-    return t[:int(0.7*l)], t[int(0.7*l):]
 
 def getSenLab(root):
     file = pd.read_csv(root)
@@ -146,7 +137,8 @@ def train_transformer(model, train_data, valid_data):
     batch_number = len(train_data)
     for epoch in range(epochs):
         for batch_idx, (X, label) in enumerate(train_data):
-            label = torch.LongTensor(label).to(device)
+            label = Variable(torch.LongTensor(label).to(device))
+            # print(label.shape)
             # print(x.shape, label.shape)
             output = model(X)
             # print(output.shape)
@@ -163,7 +155,7 @@ def train_transformer(model, train_data, valid_data):
             total_num = 0
             for _, (X, label_valid) in enumerate(valid_data):
                 x_valid = X
-                label_valid = torch.LongTensor(label_valid).to(device)
+                label_valid = Variable(torch.LongTensor(label_valid).to(device))
                 valid_output = model(x_valid)
                 # print(valid_output)
                 valid_loss = criteon(valid_output, label_valid)
@@ -183,19 +175,19 @@ if __name__ == '__main__':
     vocab_size = len(word2num)
 
     # 超参数
-    batch_size = 32
+    batch_size = 1
     # dim_q = 64
     # dim_k = 64
     # dim_v = 128
     heads_num = 8
-    input_dim = embedding_dim = 16
+    input_dim = embedding_dim = 80
     pad = 0
     p_drop = 0.1
     hidden_dim = 500
     output_dim = 6
     learn_rate = 1e-3
     epochs = 1000
-    num_layers = 4
+    num_layers = 1
     #
     dataset = MyData(sentences, labels, word2num)
 
@@ -205,8 +197,15 @@ if __name__ == '__main__':
 
     train_data = DataLoader(train_data, batch_size=batch_size, shuffle=False, collate_fn=my_collate)
     valid_data = DataLoader(valid_data, batch_size=batch_size, shuffle=False, collate_fn=my_collate)
+
+    # x, label = iter(valid_data).next()
+    # print(x, label)
+
     model = Model()
     model.to(device)
-    # train_transformer(model, train_data, valid_data)
-
-    model = Model(vocab_size)
+    train_transformer(model, train_data, valid_data)
+    # #
+    # x = Variable(torch.LongTensor(np.random.randint(1, 1000, [3, 30, 40]))).to(device)
+    # # print(x.shape)
+    # # y = model(x)
+    # # print(y)
