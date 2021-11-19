@@ -25,6 +25,7 @@ class Model(nn.Module):
         # print(hidden.shape)
         hidden = self.dropout(hidden)
         out = self.layer(hidden)
+        print(out.shape)
         return out
 
 class Embedding(nn.Module):
@@ -41,7 +42,7 @@ class Embedding(nn.Module):
         X = Variable(torch.LongTensor(X).to(device))
         return self.embedding(X)
 
-def train_transformer(model, train_data, valid_data):
+def train_lstm(model, train_data, valid_data):
     criteon = nn.CrossEntropyLoss().to(device)
     optimizer = optim.Adam(model.parameters(), lr = learn_rate)
 
@@ -51,7 +52,7 @@ def train_transformer(model, train_data, valid_data):
         for batch_idx, (X, label) in enumerate(train_data):
             label = Variable(torch.LongTensor(label).to(device))
             # print(label.shape)
-            # print(x.shape, label.shape)
+            print(label.shape)
             output = model(X)
             # print(output.shape)
             loss = criteon(output, label)
@@ -111,4 +112,4 @@ if __name__ == '__main__':
 
     model = Model()
     model.to(device)
-    train_transformer(model, train_data, valid_data)
+    train_lstm(model, train_data, valid_data)
