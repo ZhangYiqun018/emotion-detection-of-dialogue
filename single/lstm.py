@@ -9,6 +9,12 @@ from torch.autograd import Variable
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
+"""
+TP 预测为1 实际为1 预测正确
+FP 预测为1 实际为0 预测错误
+FN 预测为0 实际为1 预测错误
+TN 预测为0 实际为0 预测正确
+"""
 class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
@@ -25,7 +31,7 @@ class Model(nn.Module):
         # print(hidden.shape)
         hidden = self.dropout(hidden)
         out = self.layer(hidden)
-        print(out.shape)
+        # print(out.shape)
         return out
 
 class Embedding(nn.Module):
@@ -52,7 +58,6 @@ def train_lstm(model, train_data, valid_data):
         for batch_idx, (X, label) in enumerate(train_data):
             label = Variable(torch.LongTensor(label).to(device))
             # print(label.shape)
-            print(label.shape)
             output = model(X)
             # print(output.shape)
             loss = criteon(output, label)
@@ -66,6 +71,7 @@ def train_lstm(model, train_data, valid_data):
         with torch.no_grad():
             total_correct = 0
             total_num = 0
+            confused_matrix = torch.zeros(output_dim, output_dim).to(device)
             for _, (X, label_valid) in enumerate(valid_data):
                 x_valid = X
                 label_valid = Variable(torch.LongTensor(label_valid).to(device))
@@ -73,10 +79,29 @@ def train_lstm(model, train_data, valid_data):
                 # print(valid_output)
                 valid_loss = criteon(valid_output, label_valid)
                 pred = valid_output.argmax(dim=1)
+                # print(pred, label_valid)
+                for p, l in zip(pred, label_valid):
+                    confused_matrix[p][l] += 1
                 total_correct += torch.eq(pred, label_valid).float().sum().item()
                 total_num += len(x_valid)
             acc = total_correct / total_num
-            print(f'\nValidating at epoch', '%04d'% (epoch+1) , 'acc:', '{:.6f},'.format(acc))
+            TP, FN, FP = getScore(confused_matrix)
+            prec = float(TP / (TP + FP))
+            recall = float(TP / (TP + FN))
+            F1 = float(2 * prec * recall / (prec + recall))
+            print(f'\nValidating at epoch', '%04d'% (epoch+1) , 'acc:{:6f},'.format(acc), 'prec:', '{:.6f},'.format(prec), 'recall:', '{:.6f},'.format(recall), 'F1:{:.6f}'.format(F1))
+
+def getScore(confused_matrix):
+    TP, FP, FN = 0, 0, 0
+    for i in range(output_dim):
+        for j in range(output_dim):
+            if i == j:
+                TP += confused_matrix[i][j]
+            if i >= 1:
+                FN += confused_matrix[i][j]
+            if j >= 1:
+                FP += confused_matrix[i][j]
+    return TP, FN - TP, FP - TP
 
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -88,14 +113,14 @@ if __name__ == '__main__':
     vocab_size = len(word2num)
 
     # 超参数
-    batch_size = 32
+    batch_size = 64
     input_dim = embedding_dim = 512
     pad = 0
     hidden_dim = 150
     output_dim = 6
     learn_rate = 1e-3 * 0.6
     epochs = 20
-    num_layers = 3
+    num_layers = 1
     p_dropout = 0.1
     #
     dataset = MyData(sentences, labels, word2num)

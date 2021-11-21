@@ -25,19 +25,22 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.Embedding = Embedding(vocab_size, input_dim, pad)
         self.PositionalEncoding = PositionalEncoding(input_dim)
-        encoder_layer = nn.TransformerEncoderLayer(input_dim, heads_num)
+        encoder_layer = nn.TransformerEncoderLayer(input_dim, heads_num, hidden_dim, p_drop)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.output_dim = output_dim
-        self.fc = nn.Linear(input_dim, output_dim)
+        # self.fc = nn.Linear(, output_dim)
     def forward(self, X):
         x1 = self.Embedding(X)
         x2 = self.PositionalEncoding(x1[0]).to(device)
         x = x1 + x2
         x = x.to(torch.float32)
         x_trans = self.transformer_encoder(x)
-        x_trans, _ = torch.max(x_trans, dim=1)
-        fc = self.fc(x_trans)
-        output = nn.Softmax(dim=-1)(fc)
+        # print(x_trans.shape)
+        x1, x2, x3 = x_trans.shape
+        layer = nn.Linear(x2*x3, output_dim).to(device)
+        output = x_trans.reshape(x1, x2*x3)
+        output = layer(output).to(device)
+        output = nn.Softmax(dim=-1)(output)
         return output
 
 class Embedding(nn.Module):
@@ -79,6 +82,7 @@ def train_transformer(model, train_data, valid_data):
         model.train()
         for batch_idx, (X, label) in enumerate(train_data):
             label = Variable(torch.LongTensor(label).to(device))
+            # print(len(X), label.shape)
             output = model(X)
             loss = criteon(output, label)
             if (batch_idx+1) % 100 == 0:
@@ -114,18 +118,15 @@ if __name__ == '__main__':
 
     # 超参数
     batch_size = 32
-    # dim_q = 64
-    # dim_k = 64
-    # dim_v = 128
     heads_num = 8
-    input_dim = embedding_dim = 256
+    input_dim = embedding_dim = 512
     pad = 0
-    p_drop = 0.1
-    hidden_dim = 500
+    p_drop = 0.4
+    hidden_dim = 256
     output_dim = 6
     learn_rate = 1e-3
-    epochs = 1000
-    num_layers = 2
+    epochs = 20
+    num_layers = 1
     #
     dataset = MyData(sentences, labels, word2num)
 
@@ -142,8 +143,3 @@ if __name__ == '__main__':
     model = Model()
     model.to(device)
     train_transformer(model, train_data, valid_data)
-    # #
-    # x = Variable(torch.LongTensor(np.random.randint(1, 1000, [3, 30, 40]))).to(device)
-    # # print(x.shape)
-    # # y = model(x)
-    # # print(y)
