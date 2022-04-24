@@ -1,36 +1,44 @@
 import pandas as pd
 
 from singleData import MyData
-from singleData import getSenLab
 from singleData import getDict
-from singleData import my_collate
 from singleData import getTest
+from singleData import getSenLab
+from singleData import my_collate
 
+import math
 import torch
 import numpy as np
 import torch.nn as nn
-from torch.autograd import Variable
 import torch.optim as optim
+from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
-        self.Embedding = Embedding(vocab_size, input_dim, pad)
-        self.rnn = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, bidirectional=True, dropout=p_dropout)
-        self.dropout = nn.Dropout(p_dropout)
-        self.layer = nn.Linear(2*hidden_dim, output_dim)
-    def forward(self, X):
-        embedding = self.Embedding(X)
-        embedding = embedding.to(torch.float32)
-        lstm, (hidden, cell) = self.rnn(embedding.transpose(0, 1))
-        # print(hidden.shape)
-        hidden = torch.cat([hidden[-2], hidden[-1]], dim=1)
-        # print(hidden.shape)
-        hidden = self.dropout(hidden)
-        out = self.layer(hidden)
-        # print(out.shape)
-        return out
+        self.embedding = Embedding(vocab_size, input_dim, pad)
+        self.positional = PositionalEncoding(input_dim)
+
+        encoder_layer = nn.TransformerEncoderLayer(input_dim, heads_num, hidden_dim, p_drop)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers)
+
+        # self.fc1 = nn.Linear(max_len * input_dim, last_hidden_dim)
+        # self.fc2 = nn.Linear(last_hidden_dim, num_class)
+        self.fc1 = nn.Linear(input_dim, num_class)
+        self.softmax = nn.Softmax(dim=-1)
+    def forward(self, x):
+        x = self.embedding(x) + self.positional().to(device)
+        x = x.to(torch.float32)
+        x = self.encoder(x)
+        # x = x.view(x.size(0), -1)
+        x = torch.mean(x, 1)
+        # print(x.shape)
+
+        x = self.fc1(x)
+        # print(x.shape)
+        # x = self.fc2(x)
+        return x
 
 class Embedding(nn.Module):
     def __init__(self, vocab_size, input_dim, pad):
@@ -40,10 +48,25 @@ class Embedding(nn.Module):
         for i in range(len(X)):
             if len(X[i]) < max_len:
                 X[i].extend([0] * (max_len - len(X[i])))
-        X = Variable(torch.LongTensor(X).to(device))
+        X = torch.LongTensor(X).to(device)
         return self.embedding(X)
 
-def train_lstm(model, train_data, valid_data):
+class PositionalEncoding(nn.Module):
+    def __init__(self, input_dim):
+        super(PositionalEncoding, self).__init__()
+        self.input_dim = input_dim
+
+    def forward(self):
+        pe = np.zeros((max_len, self.input_dim))
+        for i in range(max_len):
+            for j in range(self.input_dim):
+                if j % 2 == 0:
+                    pe[i][j] = math.sin(j / pow(10000, 2 * j / self.input_dim))
+                else:
+                    pe[i][j] = math.cos(j / pow(10000, 2 * j / self.input_dim))
+        return torch.from_numpy(pe)
+
+def train_transformer(model, train_data, valid_data):
     criteon = nn.CrossEntropyLoss().to(device)
     optimizer = optim.Adam(model.parameters(), lr = learn_rate)
     batch_number = len(train_data)
@@ -57,7 +80,7 @@ def train_lstm(model, train_data, valid_data):
             # print(output.shape)
             loss = criteon(output, label)
             if (batch_idx+1) % 100 == 0:
-                print('epoch', '{:4d}'.format(epoch+1), 'step {:4d}/{:4d},'.format(batch_idx+1, batch_number), 'loss:', ':{:.6f} '.format(loss.item()))
+                print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -85,26 +108,7 @@ def train_lstm(model, train_data, valid_data):
             prec = float(TP / (TP + FP))
             recall = float(TP / (TP + FN))
             F1 = float(2 * prec * recall / (prec + recall))
-            if f1 < F1:
-                test(model)
-                print('best f1:', F1)
-                f1 = F1
-            print('\nValidating at epoch', '{:4d}'.format(epoch+1) , 'acc:{:.6f},'.format(acc), 'prec:{:.6f},'.format(prec), 'recall:', ':{:.6f},'.format(recall), 'F1:{:.6f}'.format(F1))
-
-def test(model):
-    root = './test.csv'
-    x = getTest(root)
-    input = []
-    for sen in x:
-        dic = [word2num[ch] for ch in sen]
-        input.append(dic)
-    # print(input)
-    p = model(input).argmax(dim=1).to('cpu')
-    # print(p)
-    p = [int(i)+1 for i in p]
-    id = np.arange(1, 1001, 1)
-    dataframe = pd.DataFrame({'ID':id, 'Last Label':p})
-    dataframe.to_csv("res.csv", index=False, sep=',')
+            print(f'\nValidating at epoch', '%04d'% (epoch+1) , 'acc:{:6f},'.format(acc), 'prec:', '{:.6f},'.format(prec), 'recall:', '{:.6f},'.format(recall), 'F1:{:.6f}'.format(F1))
 
 def getScore(confused_matrix):
     TP, FP, FN = 0, 0, 0
@@ -131,25 +135,29 @@ def getTrain():
     train_data, valid_data = torch.utils.data.random_split(dataset, [train_size, valid_size])
     return train_data, valid_data, vocab_size, word2num
 
-
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    # hyper parameter 
     batch_size = 32
-    max_len = 100
-    input_dim = embedding_dim = 512
+    input_dim = embedding_dim = 256
     pad = 0
-    hidden_dim = 256
+    hidden_dim = 512
+    last_hidden_dim = 3000
     output_dim = 6
-    learn_rate = 5e-5
+    learn_rate = 1e-3
     epochs = 10000
-    num_layers = 4
-    p_dropout = 0.4
-    # train data
+    num_layers = 1
+    p_drop = 0.5
+    max_len = 100
+    heads_num = 8
+    num_class = 6
+
     train_data, valid_data, vocab_size, word2num = getTrain()
     train_data = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
     valid_data = DataLoader(valid_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
 
     model = Model()
     model.to(device)
-    train_lstm(model, train_data, valid_data)
+    train_transformer(model, train_data, valid_data)
+
+
+

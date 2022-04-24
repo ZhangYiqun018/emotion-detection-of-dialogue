@@ -13,6 +13,12 @@ from torch.autograd import Variable
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
+"""
+TP 预测为1 实际为1 预测正确
+FP 预测为1 实际为0 预测错误
+FN 预测为0 实际为1 预测错误
+TN 预测为0 实际为0 预测正确
+"""
 class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
@@ -37,6 +43,9 @@ class Embedding(nn.Module):
         super(Embedding, self).__init__()
         self.embedding = nn.Embedding(vocab_size, input_dim, padding_idx=pad)
     def forward(self, X):
+        max_len = 0
+        for i in range(len(X)):
+            max_len = len(X[i]) if len(X[i]) > max_len else max_len
         for i in range(len(X)):
             if len(X[i]) < max_len:
                 X[i].extend([0] * (max_len - len(X[i])))
@@ -57,7 +66,7 @@ def train_lstm(model, train_data, valid_data):
             # print(output.shape)
             loss = criteon(output, label)
             if (batch_idx+1) % 100 == 0:
-                print('epoch', '{:4d}'.format(epoch+1), 'step {:4d}/{:4d},'.format(batch_idx+1, batch_number), 'loss:', ':{:.6f} '.format(loss.item()))
+                print('epoch', '%04d,' % (epoch+1), 'step', f'{batch_idx+1} / {batch_number}, ', 'loss:', '{:.6f},'.format(loss.item()))
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -87,9 +96,8 @@ def train_lstm(model, train_data, valid_data):
             F1 = float(2 * prec * recall / (prec + recall))
             if f1 < F1:
                 test(model)
-                print('best f1:', F1)
                 f1 = F1
-            print('\nValidating at epoch', '{:4d}'.format(epoch+1) , 'acc:{:.6f},'.format(acc), 'prec:{:.6f},'.format(prec), 'recall:', ':{:.6f},'.format(recall), 'F1:{:.6f}'.format(F1))
+            print(f'\nValidating at epoch', '%04d'% (epoch+1) , 'acc:{:6f},'.format(acc), 'prec:', '{:.6f},'.format(prec), 'recall:', '{:.6f},'.format(recall), 'F1:{:.6f}'.format(F1))
 
 def test(model):
     root = './test.csv'
@@ -134,18 +142,17 @@ def getTrain():
 
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    # hyper parameter 
+    # 超参数
     batch_size = 32
-    max_len = 100
     input_dim = embedding_dim = 512
     pad = 0
-    hidden_dim = 256
+    hidden_dim = 150
     output_dim = 6
-    learn_rate = 5e-5
+    learn_rate = 3e-4
     epochs = 10000
-    num_layers = 4
-    p_dropout = 0.4
-    # train data
+    num_layers = 3
+    p_dropout = 0.1
+    # 训练集
     train_data, valid_data, vocab_size, word2num = getTrain()
     train_data = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
     valid_data = DataLoader(valid_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
